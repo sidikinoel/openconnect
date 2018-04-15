@@ -452,7 +452,7 @@ static const struct pkt esp_enable_pkt = {
 	.len = 13
 };
 
-int queue_esp_control(struct openconnect_info *vpninfo, int enable)
+static int queue_esp_control(struct openconnect_info *vpninfo, int enable)
 {
 	struct pkt *new = malloc(sizeof(*new) + 13);
 	if (!new)
@@ -931,6 +931,12 @@ int oncp_mainloop(struct openconnect_info *vpninfo, int *timeout)
 	if (vpninfo->ssl_fd == -1)
 		goto do_reconnect;
 
+	/* Queue the ESP enable message. We will start sending packets
+	   via ESP once the enable message has been *sent* over the
+	   TCP channel. */
+	if (vpninfo->dtls_state == DTLS_CONNECTING)
+		queue_esp_control(vpninfo, 1);
+
 	/* FIXME: The poll() handling here is fairly simplistic. Actually,
 	   if the SSL connection stalls it could return a WANT_WRITE error
 	   on _either_ of the SSL_read() or SSL_write() calls. In that case,
@@ -1303,6 +1309,13 @@ int oncp_bye(struct openconnect_info *vpninfo, const char *reason)
 }
 
 #ifdef HAVE_ESP
+void oncp_esp_close(struct openconnect_info *vpninfo)
+{
+	/* Tell server to stop sending on ESP channel */
+	queue_esp_control(vpninfo, 0);
+	esp_close(vpninfo);
+}
+
 int oncp_esp_send_probes(struct openconnect_info *vpninfo)
 {
 	struct pkt *pkt;
